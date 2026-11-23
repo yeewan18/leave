@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Leave Monitor</title>
   <link rel="stylesheet" href="styles.css">
+  <script>try { var t = localStorage.getItem('leave-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
 </head>
 <body>
   <header class="top">
     <h1>Leave Monitor</h1>
     <div class="who">
       <label>Viewing as <select id="who"></select></label>
+      <button id="theme" class="theme-btn" title="Switch between day and night theme"></button>
       <button id="reset" class="link" title="Reset demo data">Reset demo</button>
     </div>
   </header>

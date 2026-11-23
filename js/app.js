@@ -36,6 +36,23 @@ const App = {
   },
 };
 
+// Day/night theme: saved choice wins, otherwise follow the OS setting.
+const Theme = {
+  isDark() {
+    const t = document.documentElement.dataset.theme;
+    return t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  },
+  paint() { document.getElementById('theme').textContent = this.isDark() ? '☀ Day mode' : '🌙 Night mode'; },
+  toggle() {
+    const next = this.isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('leave-theme', next); } catch (e) { /* ignore */ }
+    this.paint();
+  },
+};
+document.getElementById('theme').onclick = () => Theme.toggle();
+Theme.paint();
+
 document.getElementById('reset').onclick = () => {
   if (confirm('Reset all data to the demo seed?')) { Data.reset(); Store.init(Data.seed()); App.tab = 'my'; App.render(); }
 };
