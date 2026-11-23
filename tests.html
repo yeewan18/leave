@@ -1,0 +1,76 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Leave tests</title>
+<style>body{font:14px monospace;padding:16px}.p{color:green}.f{color:red;font-weight:bold}</style></head>
+<body><h3>Leave Monitor tests</h3><pre id="out"></pre>
+<script src="js/workdays.js"></script>
+<script src="js/data.js"></script>
+<script src="js/store.js"></script>
+<script>
+const out = document.getElementById('out'); let fails = 0;
+const eq = (name, got, want) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want); if (!ok) fails++;
+  out.innerHTML += `<span class="${ok ? 'p' : 'f'}">${ok ? 'PASS' : 'FAIL'}</span> ${name}${ok ? '' : ` — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}\n`;
+};
+const H = [{ date: '2026-12-25', name: 'Xmas' }];
+// 2026-12-25 is a Friday.
+eq('Mon–Fri = 5', Workdays.countWorkingDays('2026-11-23', '2026-11-27', []), 5);
+eq('Fri→Mon = 2', Workdays.countWorkingDays('2026-11-27', '2026-11-30', []), 2);
+eq('single Saturday = 0', Workdays.countWorkingDays('2026-11-28', '2026-11-28', []), 0);
+eq('weekend range = 0', Workdays.countWorkingDays('2026-11-28', '2026-11-29', []), 0);
+eq('holiday excluded', Workdays.countWorkingDays('2026-12-24', '2026-12-28', H), 2); // Thu + Mon
+eq('holiday on weekend not double counted', Workdays.countWorkingDays('2026-12-25', '2026-12-27', H), 0);
+eq('end before start = 0', Workdays.countWorkingDays('2026-11-30', '2026-11-23', []), 0);
+eq('crosses month/year', Workdays.countWorkingDays('2026-12-30', '2027-01-04', [{date:'2027-01-01'}]), 3); // Wed,Thu,Mon
+eq('overlap true', Workdays.rangesOverlap('2026-12-01','2026-12-05','2026-12-05','2026-12-09'), true);
+eq('overlap false', Workdays.rangesOverlap('2026-12-01','2026-12-04','2026-12-05','2026-12-09'), false);
+
+const dates = (d) => SEED_HOLIDAYS.some((h) => h.date === d);
+eq('Sat Hari Raya Puasa 21 Mar 2026 -> Mon 23 Mar off in lieu', dates('2026-03-23'), true);
+eq('Sun Vesak 31 May 2026 -> Mon 1 Jun', dates('2026-06-01'), true);
+eq('Sun National Day -> Mon 10 Aug 2026', dates('2026-08-10'), true);
+eq('Sun Deepavali -> Mon 9 Nov 2026', dates('2026-11-09'), true);
+eq('Sat Labour Day 2027 -> Mon 3 May', dates('2027-05-03'), true);
+eq('Fri Christmas 2026 has no lieu', dates('2026-12-28'), false);
+eq('CNY Sat+Sun 2027: only Mon 8 Feb in lieu (matches MOM)', [dates('2027-02-08'), dates('2027-02-09')], [true, false]);
+eq('in lieu day is not a weekend', SEED_HOLIDAYS.filter((h) => h.inLieu).every((h) => !Workdays.isWeekend(h.date)), true);
+
+// Store logic on a fresh seed
+Store.init(Data.seed());
+Store.persist = () => {}; // tests must not touch the app's real localStorage
+const s = Store;
+eq('seed approved annual taken (Bob 23–28 Dec, Xmas hol)', s.getBalance('u3', 'annual').taken, 3); // 23,24,28
+eq('Bob annual remaining', s.getBalance('u3', 'annual').remaining, 17);
+eq('unpaid uncapped', s.getBalance('u2', 'unpaid').remaining, null);
+eq('reject end before start', s.submitRequest({userId:'u2',type:'medical',start:'2026-11-10',end:'2026-11-09',reason:'x'}).ok, false);
+eq('reject empty reason for unpaid', s.submitRequest({userId:'u2',type:'unpaid',start:'2026-11-10',end:'2026-11-10',reason:' '}).ok, false);
+eq('empty reason ok for medical', s.submitRequest({userId:'u2',type:'medical',start:'2026-11-10',end:'2026-11-10',reason:''}).ok, true);
+eq('reject weekend-only', s.submitRequest({userId:'u2',type:'medical',start:'2026-11-28',end:'2026-11-29',reason:'x'}).ok, false);
+eq('childcare blocked for employee without kids (Calista)', s.submitRequest({userId:'u4',type:'childcare',start:'2026-02-02',end:'2026-02-02',reason:'x'}).ok, false);
+eq('reject over childcare cap (6)', s.submitRequest({userId:'u2',type:'childcare',start:'2026-02-02',end:'2026-02-10',reason:'x'}).ok, false); // 7 days
+eq('accept childcare 5 days', s.submitRequest({userId:'u2',type:'childcare',start:'2026-02-02',end:'2026-02-06',reason:'kid'}).ok, true);
+eq('pending counts against cap', s.submitRequest({userId:'u2',type:'childcare',start:'2026-03-02',end:'2026-03-03',reason:'kid'}).ok, false);
+eq('reject self-overlap', s.submitRequest({userId:'u2',type:'unpaid',start:'2026-12-22',end:'2026-12-22',reason:'x'}).ok, false);
+const r1 = s.state.requests.find(r => r.id === 'r1');
+eq('r1 overlaps r2 and r4', s.getOverlaps(r1).map(r => r.id).sort(), ['r2','r4']);
+eq('approve ok', s.decide('r1', true, 'ok').ok, true);
+eq('balance after approve', s.getBalance('u2','annual').taken, 4); // 21,22,23,24
+eq('cannot decide twice', s.decide('r1', false, '').ok, false);
+s.decide('r4', false, 'busy');
+eq('reject leaves balance', s.getBalance('u5','annual').taken, 0);
+eq('year-scoped balance counts that year', s.getBalance('u3','annual',2026).taken, 3);
+eq('year-scoped balance ignores other years', s.getBalance('u3','annual',2027).taken, 0);
+eq('Michael pending 2027 only', [s.getBalance('u7','annual',2026).pending, s.getBalance('u7','annual',2027).pending], [0,5]);
+
+// Adding employees (manager only)
+eq('employee cannot add employee', s.addEmployee({name:'X'}).ok, false); // current user is Alice here
+s.setCurrentUser('u1');
+eq('reject blank name', s.addEmployee({name:'  '}).ok, false);
+eq('reject duplicate name (case-insens.)', s.addEmployee({name:'alice'}).ok, false);
+const added = s.addEmployee({name:'  Priya   Nair ', hasKids:true});
+eq('add employee ok + normalised name', [added.ok, added.user.name, added.user.team, added.user.hasKids], [true,'Priya Nair','Engineering',true]);
+eq('new id is unique', new Set(s.state.users.map(u=>u.id)).size, s.state.users.length);
+eq('new parent can request childcare', s.submitRequest({userId:added.user.id,type:'childcare',start:'2026-02-02',end:'2026-02-02',reason:'kid'}).ok, true);
+s.setHasKids('u2', false);
+eq('toggle kids off blocks childcare', s.submitRequest({userId:'u2',type:'childcare',start:'2026-04-06',end:'2026-04-06',reason:'x'}).ok, false);
+out.innerHTML += fails ? `\n<span class="f">${fails} FAILED</span>` : '\n<span class="p">All passed</span>';
+</script></body></html>
